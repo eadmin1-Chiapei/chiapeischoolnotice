@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>行政訊息彙整</title>
+  <meta name="theme-color" content="#f4f1ec">
+  <style>
+    :root{
+      --bg:#f4f1ec;
+      --card:#ffffff;
+      --ink:#2b2926;
+      --muted:#746f68;
+      --line:#e1dbd2;
+      --accent:#8f6d49;
+      --accent2:#6f563d;
+      --soft:#f8f6f2;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC","PingFang TC",sans-serif;
+      background:var(--bg);
+      color:var(--ink);
+    }
+    .wrap{
+      max-width:900px;
+      margin:0 auto;
+      padding:28px 16px 60px;
+    }
+    header{
+      margin-bottom:18px;
+    }
+    h1{
+      margin:0;
+      font-size:28px;
+    }
+    .sub{
+      margin-top:6px;
+      color:var(--muted);
+      font-size:14px;
+    }
+    .toolbar{
+      background:var(--card);
+      border:1px solid var(--line);
+      border-radius:18px;
+      padding:14px;
+      display:grid;
+      grid-template-columns:auto 1fr auto auto;
+      gap:8px;
+      align-items:center;
+      position:sticky;
+      top:10px;
+      z-index:10;
+      box-shadow:0 10px 30px rgba(70,55,40,.08);
+    }
+    button,input{
+      font:inherit;
+    }
+    input[type=date]{
+      width:100%;
+      border:1px solid var(--line);
+      border-radius:12px;
+      padding:10px 12px;
+      background:#fff;
+      color:var(--ink);
+    }
+    button{
+      border:0;
+      border-radius:12px;
+      padding:10px 13px;
+      background:#ece6de;
+      color:var(--ink);
+      cursor:pointer;
+    }
+    button.primary{
+      background:var(--accent);
+      color:#fff;
+    }
+    button:hover{filter:brightness(.98)}
+    .status{
+      margin:12px 4px;
+      color:var(--muted);
+      font-size:13px;
+    }
+    .list{
+      display:grid;
+      gap:14px;
+      margin-top:12px;
+    }
+    .card{
+      background:var(--card);
+      border:1px solid var(--line);
+      border-radius:18px;
+      padding:18px;
+      box-shadow:0 10px 26px rgba(70,55,40,.05);
+    }
+    .title{
+      font-weight:700;
+      font-size:19px;
+      line-height:1.45;
+      margin-bottom:12px;
+    }
+    .notice,.parent{
+      white-space:pre-wrap;
+      line-height:1.75;
+      padding:14px;
+      border-radius:12px;
+      background:var(--soft);
+    }
+    .parent{
+      margin-top:12px;
+      border-left:4px solid var(--accent);
+    }
+    .label{
+      font-size:12px;
+      color:var(--muted);
+      margin-bottom:6px;
+    }
+    .actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-top:12px;
+    }
+    .empty{
+      margin-top:18px;
+      background:var(--card);
+      border:1px solid var(--line);
+      border-radius:18px;
+      padding:40px 18px;
+      text-align:center;
+      color:var(--muted);
+    }
+    .toast{
+      position:fixed;
+      left:50%;
+      bottom:28px;
+      transform:translateX(-50%);
+      background:#2d2925;
+      color:white;
+      padding:10px 14px;
+      border-radius:999px;
+      opacity:0;
+      pointer-events:none;
+      transition:.2s;
+      z-index:30;
+      font-size:14px;
+    }
+    .toast.show{opacity:1}
+    @media(max-width:640px){
+      .toolbar{
+        grid-template-columns:auto 1fr auto;
+      }
+      .toolbar .today{
+        grid-column:1 / -1;
+      }
+      h1{font-size:24px}
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>行政訊息彙整</h1>
+    <div class="sub">依日期查看通知，直接複製後貼到 LINE。</div>
+  </header>
+
+  <div class="toolbar">
+    <button onclick="shiftDate(-1)">←</button>
+    <input id="date" type="date">
+    <button onclick="shiftDate(1)">→</button>
+    <button class="today" onclick="setToday()">今天</button>
+  </div>
+
+  <div id="status" class="status">準備讀取資料…</div>
+  <main id="list" class="list"></main>
+</div>
+
+<div id="toast" class="toast">已複製</div>
+
+<script>
+const API_URL = 'https://script.google.com/macros/s/AKfycbwyDl4pK0tQmwxNt3Rh40QqJk2acuC0rpVwvjvMLo6mIsAOnsXUK_BBSxyY-AeQgUQEwg/exec';
+
+let records = [];
+
+function localDate(d = new Date()){
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+function setToday(){
+  document.getElementById('date').value = localDate();
+  loadData();
+}
+
+function shiftDate(days){
+  const el = document.getElementById('date');
+  const d = new Date((el.value || localDate()) + 'T12:00:00');
+  d.setDate(d.getDate() + days);
+  el.value = localDate(d);
+  loadData();
+}
+
+function jsonp(url){
+  return new Promise((resolve,reject)=>{
+    const callback = 'cb_' + Date.now() + '_' + Math.floor(Math.random()*10000);
+    const script = document.createElement('script');
+    const timer = setTimeout(()=>{
+      cleanup();
+      reject(new Error('讀取逾時'));
+    },12000);
+
+    function cleanup(){
+      clearTimeout(timer);
+      delete window[callback];
+      script.remove();
+    }
+
+    window[callback] = data => {
+      cleanup();
+      resolve(data);
+    };
+
+    script.onerror = ()=>{
+      cleanup();
+      reject(new Error('讀取失敗'));
+    };
+
+    const sep = url.includes('?') ? '&' : '?';
+    script.src = url + sep + 'callback=' + encodeURIComponent(callback);
+    document.body.appendChild(script);
+  });
+}
+
+async function loadData(){
+  const date = document.getElementById('date').value;
+  const status = document.getElementById('status');
+
+  status.textContent = '讀取中…';
+
+  try{
+    const data = await jsonp(
+      `${API_URL}?action=list&date=${encodeURIComponent(date)}`
+    );
+
+    if(!data.ok){
+      throw new Error(data.error || 'API 錯誤');
+    }
+
+    records = data.records || [];
+    render();
+
+    status.textContent =
+      `${date}｜共 ${records.length} 則通知`;
+  }catch(err){
+    records = [];
+    render();
+    status.textContent = '讀取失敗：' + err.message;
+  }
+}
+
+function render(){
+  const list = document.getElementById('list');
+
+  if(!records.length){
+    list.innerHTML =
+      '<div class="empty">這一天目前沒有公告。</div>';
+    return;
+  }
+
+  list.innerHTML = records.map((r,i)=>`
+    <article class="card">
+      <div class="title">${escapeHTML(r.title || '未命名通知')}</div>
+
+      <div class="label">教師通知</div>
+      <div class="notice">${escapeHTML(r.noticeText || '')}</div>
+
+      ${
+        r.parentText
+        ? `
+          <div class="parent">
+            <div class="label">家長 LINE 版</div>
+            ${escapeHTML(r.parentText)}
+          </div>
+        `
+        : ''
+      }
+
+      <div class="actions">
+        <button onclick="copyRecord(${i}, 'notice')">
+          複製教師版
+        </button>
+
+        ${
+          r.parentText
+          ? `
+            <button class="primary" onclick="copyRecord(${i}, 'parent')">
+              複製家長 LINE 版
+            </button>
+          `
+          : ''
+        }
+      </div>
+    </article>
+  `).join('');
+}
+
+async function copyRecord(index,type){
+  const r = records[index];
+  const text =
+    type === 'parent'
+      ? r.parentText
+      : r.noticeText;
+
+  try{
+    await navigator.clipboard.writeText(text);
+  }catch(_){
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+
+  showToast(
+    type === 'parent'
+      ? '已複製家長 LINE 版'
+      : '已複製教師版'
+  );
+}
+
+function showToast(text){
+  const toast = document.getElementById('toast');
+  toast.textContent = text;
+  toast.classList.add('show');
+  setTimeout(()=>toast.classList.remove('show'),1600);
+}
+
+function escapeHTML(text=''){
+  return String(text).replace(/[&<>"']/g, c => ({
+    '&':'&amp;',
+    '<':'&lt;',
+    '>':'&gt;',
+    '"':'&quot;',
+    "'":'&#39;'
+  })[c]);
+}
+
+document.getElementById('date').value = localDate();
+document.getElementById('date').addEventListener('change',loadData);
+loadData();
+</script>
+</body>
+</html>
